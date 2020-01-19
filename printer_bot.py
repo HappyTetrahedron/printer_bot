@@ -25,6 +25,8 @@ AFFIRMATIONS = [
     "WRRRRrrrrRRRRrrrrRRRR",
 ]
 
+COMMAND_UPDATE_STATUS = "us"
+
 
 class PrinterBot:
 
@@ -47,11 +49,13 @@ class PrinterBot:
             return user_id in self.config['approved_users']
         return True
 
-    # Conversation handlers:
-    def handle_status(self, bot, update):
-        if not self.has_permission(update.message.from_user.id):
-            update.message.reply_text(self.get_affirmation())
-            return
+    @staticmethod
+    def get_single_button(text, callback_data):
+        return InlineKeyboardMarkup([[
+            InlineKeyboardButton(text, callback_data=callback_data)
+        ]])
+
+    def get_status_message(self):
         status = self.get_request("job")
         state = status['state']
         if "printing" in state.lower():
@@ -70,20 +74,47 @@ class PrinterBot:
                 progress,
                 formatted_time or "??:??"
             )
-
-            update.message.reply_text(msg, parse_mode="html")
+            return msg
         else:
-            msg = "*{}*\n{}".format(
+            msg = "<b>{}</b>\n{}".format(
                 state,
                 self.get_affirmation()
             )
-            update.message.reply_text(msg, parse_mode="markdown")
+            return msg
+
+    # Conversation handlers:
+    def handle_status(self, bot, update):
+        if not self.has_permission(update.message.from_user.id):
+            update.message.reply_text(self.get_affirmation())
+            return
+        update.message.reply_text(self.get_status_message(),
+                                  parse_mode="html",
+                                  reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS))
 
     def handle_message(self, bot, update):
         if not self.has_permission(update.message.from_user.id):
             update.message.reply_text(self.get_affirmation())
             return
         update.message.reply_text(self.get_affirmation())
+    
+    def handle_inline_button(self, bot, update):
+        query = update.callback_query
+        if not self.has_permission(query.from_user.id):
+            return
+        data = update.callback_query.data
+        data = data.split(':')
+
+        cmd = data[0]
+        message_id = query.message.message_id
+        chat_id = query.message.chat.id
+
+        if cmd == COMMAND_UPDATE_STATUS:
+            status = self.get_status_message()
+            bot.edit_message_text(text=status,
+                                  message_id=message_id,
+                                  chat_id=chat_id,
+                                  parse_mode="html",
+                                  reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS))
 
     # Help command handler
     def handle_help(self, bot, update):
@@ -112,6 +143,7 @@ class PrinterBot:
         dp.add_handler(CommandHandler("status", self.handle_status))
         dp.add_handler(CommandHandler("help", self.handle_help))
         dp.add_handler(CommandHandler("start", self.handle_status))
+        dp.add_handler(CallbackQueryHandler(self.handle_inline_button))
 
         dp.add_error_handler(self.handle_error)
 
