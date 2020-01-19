@@ -20,6 +20,9 @@ AFFIRMATIONS = [
     "WRRRR *beep*",
     "wrr-WRR-wrr-WRR-wrr",
     "wrrr-WRRR",
+    "wrrr-WRRR-wrrr-WRRR",
+    "wrp-wrp-wrp-wrp-wrp-WRRR",
+    "WRRRRrrrrRRRRrrrrRRRR",
 ]
 
 
