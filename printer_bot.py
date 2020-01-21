@@ -6,7 +6,7 @@ import logging
 import requests
 import datetime
 from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryHandler
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
@@ -27,6 +27,8 @@ AFFIRMATIONS = [
 
 COMMAND_UPDATE_STATUS = "us"
 
+TMP_PIC_PATH = "/tmp/pic"
+
 
 class PrinterBot:
 
@@ -43,6 +45,9 @@ class PrinterBot:
     def get_request(self, path):
         resp = requests.get(self.config['octoprint']['url'] + "/api/" + path, headers=self.get_headers())
         return resp.json()
+
+    def has_webcam(self):
+        return 'webcam' in self.config
 
     def has_permission(self, user_id):
         if "approved_users" in self.config:
@@ -82,14 +87,30 @@ class PrinterBot:
             )
             return msg
 
+    def get_cam_snapshot(self):
+        if not self.has_webcam():
+            return
+        url = self.config['webcam']['url']
+        resp = requests.get(url)
+        with open(TMP_PIC_PATH, 'wb') as file:
+            file.write(resp.content)
+
     # Conversation handlers:
     def handle_status(self, bot, update):
         if not self.has_permission(update.message.from_user.id):
             update.message.reply_text(self.get_affirmation())
             return
-        update.message.reply_text(self.get_status_message(),
-                                  parse_mode="html",
-                                  reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS))
+        if self.has_webcam():
+            self.get_cam_snapshot()
+            bot.send_photo(chat_id=update.message.chat.id,
+                           photo=open(TMP_PIC_PATH, 'rb'),
+                           caption=self.get_status_message(),
+                           parse_mode="html",
+                           reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS))
+        else:
+            update.message.reply_text(self.get_status_message(),
+                                      parse_mode="html",
+                                      reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS))
 
     def handle_message(self, bot, update):
         if not self.has_permission(update.message.from_user.id):
@@ -110,11 +131,25 @@ class PrinterBot:
 
         if cmd == COMMAND_UPDATE_STATUS:
             status = self.get_status_message()
-            bot.edit_message_text(text=status,
-                                  message_id=message_id,
-                                  chat_id=chat_id,
-                                  parse_mode="html",
-                                  reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS))
+
+            if self.has_webcam():
+                self.get_cam_snapshot()
+                bot.edit_message_media(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    media=InputMediaPhoto(
+                        open(TMP_PIC_PATH, 'rb'),
+                        caption=status,
+                        parse_mode="html"
+                    ),
+                    reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS)
+                )
+            else:
+                bot.edit_message_text(text=status,
+                                      message_id=message_id,
+                                      chat_id=chat_id,
+                                      parse_mode="html",
+                                      reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS))
 
     # Help command handler
     def handle_help(self, bot, update):
