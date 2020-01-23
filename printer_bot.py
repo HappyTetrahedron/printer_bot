@@ -26,6 +26,8 @@ AFFIRMATIONS = [
 ]
 
 COMMAND_UPDATE_STATUS = "us"
+COMMAND_ABORT_PRINT_CONFIRM = "ay"
+COMMAND_ABORT_PRINT_CANCEL = "an"
 
 TMP_PIC_PATH = "/tmp/pic"
 
@@ -42,9 +44,20 @@ class PrinterBot:
     def get_headers(self):
         return {"X-Api-Key": self.config['octoprint']['api_key']}
 
+    def post_headers(self):
+        headers = self.get_headers()
+        headers["Content-Type"] = "application/json"
+        return headers
+
     def get_request(self, path):
         resp = requests.get(self.config['octoprint']['url'] + "/api/" + path, headers=self.get_headers())
         return resp.json()
+
+    def post_request(self, path, body):
+        resp = requests.post(self.config['octoprint']['url'] + "/api/" + path, headers=self.post_headers(), json=body)
+        logger.info('Posted. ' + str(resp.status_code))
+        logger.info(resp.text)
+
 
     def has_webcam(self):
         return 'webcam' in self.config
@@ -95,6 +108,16 @@ class PrinterBot:
         with open(TMP_PIC_PATH, 'wb') as file:
             file.write(resp.content)
 
+    def send_confirmation_message(self, bot, message, text, confirm_cmd, cancel_cmd):
+        buttons = [
+            [InlineKeyboardButton("Do it!", callback_data=confirm_cmd)],
+            [InlineKeyboardButton("No wait!", callback_data=cancel_cmd)],
+        ]
+        message.reply_text(
+            text, 
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
     # Conversation handlers:
     def handle_status(self, bot, update):
         if not self.has_permission(update.message.from_user.id):
@@ -111,6 +134,15 @@ class PrinterBot:
             update.message.reply_text(self.get_status_message(),
                                       parse_mode="html",
                                       reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS))
+
+    def handle_abort(self, bot, update):
+        status = self.get_request("job")
+        state = status['state']
+        if "printing" in state.lower():
+            self.send_confirmation_message(bot, update.message, "Really abort current print job?", COMMAND_ABORT_PRINT_CONFIRM, COMMAND_ABORT_PRINT_CANCEL)
+        else:
+            update.message.reply_text("No print job ongoing...")
+
 
     def handle_message(self, bot, update):
         if not self.has_permission(update.message.from_user.id):
@@ -151,6 +183,20 @@ class PrinterBot:
                                       parse_mode="html",
                                       reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS))
 
+        if cmd == COMMAND_ABORT_PRINT_CANCEL:
+            bot.edit_message_text(text="Okay, not aborting anything!",
+                                  message_id=message_id,
+                                  chat_id=chat_id)
+
+        if cmd == COMMAND_ABORT_PRINT_CONFIRM:
+            self.post_request("job", {"command":"cancel"})
+            status = self.get_status_message()
+            bot.edit_message_text(text="Abort command sent.\n{}".format(status),
+                                  message_id=message_id,
+                                  chat_id=chat_id,
+                                  parse_mode="html")
+        query.answer(self.get_affirmation())
+
     # Help command handler
     def handle_help(self, bot, update):
         """Send a message when the command /help is issued."""
@@ -176,6 +222,7 @@ class PrinterBot:
         dp = updater.dispatcher
 
         dp.add_handler(CommandHandler("status", self.handle_status))
+        dp.add_handler(CommandHandler("abort", self.handle_abort))
         dp.add_handler(CommandHandler("help", self.handle_help))
         dp.add_handler(CommandHandler("start", self.handle_status))
         dp.add_handler(CallbackQueryHandler(self.handle_inline_button))
