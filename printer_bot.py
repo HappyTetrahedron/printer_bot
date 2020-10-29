@@ -64,8 +64,18 @@ class PrinterBot:
 
     def has_permission(self, user_id):
         if "approved_users" in self.config:
-            return user_id in self.config['approved_users']
+            if user_id in self.config['approved_users']:
+                return True
+            else:
+                logger.warning('User ID {} has no permissions'.format(user_id))
+                return False
         return True
+
+    def has_watch_permission(self, user_id):
+        if "approved_watchers" in self.config:
+            if user_id in self.config['approved_watchers']:
+                return True
+        return self.has_permission(user_id)
 
     @staticmethod
     def get_single_button(text, callback_data):
@@ -120,7 +130,7 @@ class PrinterBot:
 
     # Conversation handlers:
     def handle_status(self, bot, update):
-        if not self.has_permission(update.message.from_user.id):
+        if not self.has_watch_permission(update.message.from_user.id):
             update.message.reply_text(self.get_affirmation())
             return
         if self.has_webcam():
@@ -136,6 +146,9 @@ class PrinterBot:
                                       reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS))
 
     def handle_abort(self, bot, update):
+        if not self.has_permission(update.message.from_user.id):
+            update.message.reply_text(self.get_affirmation())
+            return
         status = self.get_request("job")
         state = status['state']
         if "printing" in state.lower():
@@ -145,15 +158,15 @@ class PrinterBot:
 
 
     def handle_message(self, bot, update):
-        if not self.has_permission(update.message.from_user.id):
+        if update.message.chat.type != "private":
+            return
+        if not self.has_watch_permission(update.message.from_user.id):
             update.message.reply_text(self.get_affirmation())
             return
         update.message.reply_text(self.get_affirmation())
     
     def handle_inline_button(self, bot, update):
         query = update.callback_query
-        if not self.has_permission(query.from_user.id):
-            return
         data = update.callback_query.data
         data = data.split(':')
 
@@ -162,6 +175,8 @@ class PrinterBot:
         chat_id = query.message.chat.id
 
         if cmd == COMMAND_UPDATE_STATUS:
+            if not self.has_watch_permission(query.from_user.id):
+                return
             status = self.get_status_message()
 
             if self.has_webcam():
@@ -184,11 +199,15 @@ class PrinterBot:
                                       reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS))
 
         if cmd == COMMAND_ABORT_PRINT_CANCEL:
+            if not self.has_permission(query.from_user.id):
+                return
             bot.edit_message_text(text="Okay, not aborting anything!",
                                   message_id=message_id,
                                   chat_id=chat_id)
 
         if cmd == COMMAND_ABORT_PRINT_CONFIRM:
+            if not self.has_permission(query.from_user.id):
+                return
             self.post_request("job", {"command":"cancel"})
             status = self.get_status_message()
             bot.edit_message_text(text="Abort command sent.\n{}".format(status),
