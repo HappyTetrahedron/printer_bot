@@ -230,7 +230,7 @@ class PrinterBot:
 
     def run(self, opts):
         with open(opts.config, 'r') as configfile:
-            config = yaml.load(configfile)
+            config = yaml.load(configfile, Loader=yaml.SafeLoader)
             self.config = config
 
         """Start the bot."""
