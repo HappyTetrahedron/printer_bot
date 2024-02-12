@@ -7,6 +7,7 @@ import requests
 import datetime
 from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryHandler
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
+from PIL import Image
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
@@ -115,8 +116,10 @@ class PrinterBot:
             return
         url = self.config['webcam']['url']
         resp = requests.get(url)
-        with open(TMP_PIC_PATH, 'wb') as file:
+        with open("{}.jpg".format(TMP_PIC_PATH), 'wb') as file:
             file.write(resp.content)
+        im = Image.open("{}.jpg".format(TMP_PIC_PATH))
+        im.save("{}.png".format(TMP_PIC_PATH))
 
     def send_confirmation_message(self, bot, message, text, confirm_cmd, cancel_cmd):
         buttons = [
@@ -136,7 +139,7 @@ class PrinterBot:
         if self.has_webcam():
             self.get_cam_snapshot()
             context.bot.send_photo(chat_id=update.message.chat.id,
-                           photo=open(TMP_PIC_PATH, 'rb'),
+                           photo=open("{}.png".format(TMP_PIC_PATH), 'rb'),
                            caption=self.get_status_message(),
                            parse_mode="html",
                            reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS))
@@ -185,7 +188,7 @@ class PrinterBot:
                     chat_id=chat_id,
                     message_id=message_id,
                     media=InputMediaPhoto(
-                        open(TMP_PIC_PATH, 'rb'),
+                        open("{}.png".format(TMP_PIC_PATH), 'rb'),
                         caption=status,
                         parse_mode="html"
                     ),
