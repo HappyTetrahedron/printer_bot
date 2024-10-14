@@ -9,6 +9,8 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryH
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 from PIL import Image
 
+from telegram.ext import ApplicationBuilder, ContextTypes
+
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 
@@ -121,54 +123,54 @@ class PrinterBot:
         im = Image.open("{}.jpg".format(TMP_PIC_PATH))
         im.save("{}.png".format(TMP_PIC_PATH))
 
-    def send_confirmation_message(self, bot, message, text, confirm_cmd, cancel_cmd):
+    async def send_confirmation_message(self, bot, message, text, confirm_cmd, cancel_cmd):
         buttons = [
             [InlineKeyboardButton("Do it!", callback_data=confirm_cmd)],
             [InlineKeyboardButton("No wait!", callback_data=cancel_cmd)],
         ]
-        message.reply_text(
+        await message.reply_text(
             text, 
             reply_markup=InlineKeyboardMarkup(buttons),
         )
 
     # Conversation handlers:
-    def handle_status(self, update, context):
+    async def handle_status(self, update, context):
         if not self.has_watch_permission(update.message.from_user.id):
-            update.message.reply_text(self.get_affirmation())
+            await update.message.reply_text(self.get_affirmation())
             return
         if self.has_webcam():
             self.get_cam_snapshot()
-            context.bot.send_photo(chat_id=update.message.chat.id,
+            await context.bot.send_photo(chat_id=update.message.chat.id,
                            photo=open("{}.png".format(TMP_PIC_PATH), 'rb'),
                            caption=self.get_status_message(),
                            parse_mode="html",
                            reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS))
         else:
-            update.message.reply_text(self.get_status_message(),
+            await update.message.reply_text(self.get_status_message(),
                                       parse_mode="html",
                                       reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS))
 
-    def handle_abort(self, update, context):
+    async def handle_abort(self, update, context):
         if not self.has_permission(update.message.from_user.id):
-            update.message.reply_text(self.get_affirmation())
+            await update.message.reply_text(self.get_affirmation())
             return
         status = self.get_request("job")
         state = status['state']
         if "printing" in state.lower():
-            self.send_confirmation_message(context.bot, update.message, "Really abort current print job?", COMMAND_ABORT_PRINT_CONFIRM, COMMAND_ABORT_PRINT_CANCEL)
+            await self.send_confirmation_message(context.bot, update.message, "Really abort current print job?", COMMAND_ABORT_PRINT_CONFIRM, COMMAND_ABORT_PRINT_CANCEL)
         else:
-            update.message.reply_text("No print job ongoing...")
+            await update.message.reply_text("No print job ongoing...")
 
 
-    def handle_message(self, update, context):
+    async def handle_message(self, update, context):
         if update.message.chat.type != "private":
             return
         if not self.has_watch_permission(update.message.from_user.id):
-            update.message.reply_text(self.get_affirmation())
+            await update.message.reply_text(self.get_affirmation())
             return
-        update.message.reply_text(self.get_affirmation())
+        await update.message.reply_text(self.get_affirmation())
     
-    def handle_inline_button(self, update, context):
+    async def handle_inline_button(self, update, context):
         query = update.callback_query
         data = update.callback_query.data
         data = data.split(':')
@@ -184,7 +186,7 @@ class PrinterBot:
 
             if self.has_webcam():
                 self.get_cam_snapshot()
-                context.bot.edit_message_media(
+                await context.bot.edit_message_media(
                     chat_id=chat_id,
                     message_id=message_id,
                     media=InputMediaPhoto(
@@ -195,7 +197,7 @@ class PrinterBot:
                     reply_markup=self.get_single_button("Update", COMMAND_UPDATE_STATUS)
                 )
             else:
-                context.bot.edit_message_text(text=status,
+                await context.bot.edit_message_text(text=status,
                                       message_id=message_id,
                                       chat_id=chat_id,
                                       parse_mode="html",
@@ -204,7 +206,7 @@ class PrinterBot:
         if cmd == COMMAND_ABORT_PRINT_CANCEL:
             if not self.has_permission(query.from_user.id):
                 return
-            context.bot.edit_message_text(text="Okay, not aborting anything!",
+            await context.bot.edit_message_text(text="Okay, not aborting anything!",
                                   message_id=message_id,
                                   chat_id=chat_id)
 
@@ -213,18 +215,18 @@ class PrinterBot:
                 return
             self.post_request("job", {"command":"cancel"})
             status = self.get_status_message()
-            context.bot.edit_message_text(text="Abort command sent.\n{}".format(status),
+            await context.bot.edit_message_text(text="Abort command sent.\n{}".format(status),
                                   message_id=message_id,
                                   chat_id=chat_id,
                                   parse_mode="html")
-        query.answer(self.get_affirmation())
+        await query.answer(self.get_affirmation())
 
     # Help command handler
-    def handle_help(self, update, context):
+    async def handle_help(self, update, context):
         """Send a message when the command /help is issued."""
         helptext = "WRRR-wrrr-WRRR-wrrr-wrp-wrp-wrp-WRRR-wrrr-WRRR"
 
-        update.message.reply_text(helptext, parse_mode="Markdown")
+        await update.message.reply_text(helptext, parse_mode="Markdown")
 
     # Error handler
     def handle_error(self, update, context):
@@ -238,10 +240,7 @@ class PrinterBot:
 
         """Start the bot."""
         # Create the EventHandler and pass it your bot's token.
-        updater = Updater(config['token'])
-
-        # Get the dispatcher to register handlers
-        dp = updater.dispatcher
+        dp = ApplicationBuilder().token(config['token']).build()
 
         dp.add_handler(CommandHandler("status", self.handle_status))
         dp.add_handler(CommandHandler("abort", self.handle_abort))
@@ -254,12 +253,7 @@ class PrinterBot:
         dp.add_handler(MessageHandler(None, self.handle_message))
 
         # Start the Bot
-        updater.start_polling()
-
-        # Run the bot until you press Ctrl-C or the process receives SIGINT,
-        # SIGTERM or SIGABRT. This should be used most of the time, since
-        # start_polling() is non-blocking and will stop the bot gracefully.
-        updater.idle()
+        dp.run_polling()
 
 
 def main(opts):
